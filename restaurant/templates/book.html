@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<section>
+  <article>
+    <h1>Make a reservation</h1>
+    <!-- Begin row -->
+    <div class="row">
+      <!-- Begin col -->
+      <div class="column">
+        <form method="POST" id="form">
+          {% csrf_token %}
+          <p>
+            <label for="first_name">Name:</label>
+            <input type="text" placeholder="Your Name" maxlength="200" required id="first_name">
+          </p>
+          <p>
+            <label for="reservation_date">Reservation Date:</label>
+            <input type="date" id="reservation_date" required>
+            <span id="holidayMessage" style="color: red;"></span>
+          </p>
+          <p>
+            <label for="reservation_slot">Reservation time:</label>
+            <select id="reservation_slot" required>
+              <option value="0" disabled>Select time</option>
+            </select>
+          </p>
+          <button type="button" id="button">Reserve Now</button>
+        </form>
+      </div>
+      
+      <div class="column">
+        <h2>Bookings For <span id="today"></span></h2>
+        <div id="bookings"></div>
+      </div>
+      <!-- End col -->
+    </div>
+    <!-- End row -->
+  </article>
+</section>
+<script>
+
+  const dateInput = document.getElementById('reservation_date');
+  const reservationSlotSelect = document.getElementById('reservation_slot');
+  const todaySpan = document.getElementById('today');
+  const bookingsDiv = document.getElementById('bookings');
+  const button = document.getElementById('button');
+  const firstNameInput = document.getElementById('first_name');
+  const holidayMessage = document.getElementById('holidayMessage');
+
+  const updateBookingInfo = () => {
+    const selectedDate = new Date(dateInput.value);
+    todaySpan.innerHTML = dateInput.value;
+
+    // Check if the restaurant is closed on the selected date
+    if (isRestaurantClosed(selectedDate)) {
+      reservationSlotSelect.innerHTML = '<option value="0" disabled>Restaurant is closed</option>';
+      bookingsDiv.innerHTML = 'No bookings';
+      holidayMessage.innerHTML = ''; // Clear the holiday message
+      return;
+    }
+
+    fetch("{% url 'bookings' %}?date=" + dateInput.value)
+      .then(r => r.json())
+      .then(data => {
+        let reservedSlots = [];
+        let bookings = '';
+
+        for (let i = 0; i < data.length; i++) {
+          const booking = data[i];
+          reservedSlots.push(booking.fields.reservation_slot);
+          bookings += `<p>${booking.fields.first_name} - ${formatTime(booking.fields.reservation_slot)}</p>`;
+        }
+
+        const availableSlots = getAvailableSlots(reservedSlots, selectedDate);
+        const slotOptions = availableSlots.map(slot => `<option value="${slot}">${formatTime(slot)}</option>`).join('');
+
+        reservationSlotSelect.innerHTML = '<option value="0" disabled>Select time</option>' + slotOptions;
+        bookingsDiv.innerHTML = bookings || 'No bookings';
+        
+        // Check if it's a public holiday and display a message
+        if (isPublicHoliday(selectedDate)) {
+          holidayMessage.innerHTML = 'Selected date is a public holiday. Restaurant may have special hours.';
+        } else {
+          holidayMessage.innerHTML = ''; // Clear the holiday message if not a public holiday
+        }
+      });
+  };
+
+  const formatTime = (time) => {
+    const ampm = time < 12 ? 'AM' : 'PM';
+    const t = time < 12 ? time : time > 12 ? time - 12 : time;
+    return `${t} ${ampm}`;
+  };
+
+  const getAvailableSlots = (reservedSlots, selectedDate) => {
+    const dayOfWeek = selectedDate.getDay(); // 0 for Sunday, 1 for Monday, etc.
+
+    const openingHours = {
+      1: { start: 14, end: 22 }, // Mon - Fri: 2pm - 10pm
+      2: { start: 14, end: 22 },
+      3: { start: 14, end: 22 },
+      4: { start: 14, end: 22 },
+      5: { start: 14, end: 22 },
+      6: { start: 14, end: 23 }, // Sat: 2pm - 11pm
+      0: { start: 14, end: 21 }, // Sun: 2pm - 9pm
+    };
+
+    const availableSlots = [];
+
+    for (let slot = openingHours[dayOfWeek].start; slot < openingHours[dayOfWeek].end; slot++) {
+      if (!reservedSlots.includes(slot)) {
+        availableSlots.push(slot);
+      }
+    }
+
+    return availableSlots;
+  };
+
+  const isRestaurantClosed = (selectedDate) => {
+    // Check if the selected date is a public holiday (you can replace this logic with your own public holidays check)
+    const isPublicHoliday = false; // Replace this with your actual public holiday check
+
+    // Check if the restaurant is closed on the selected day
+    const dayOfWeek = selectedDate.getDay();
+    const closedDays = [0]; // Little Lemon Restaurant is closed on Sundays
+
+    return isPublicHoliday || closedDays.includes(dayOfWeek);
+  };
+
+  button.addEventListener('click', function (e) {
+    const nameValue = firstNameInput.value.trim(); // Trim to remove leading and trailing whitespaces
+
+    if (nameValue !== "") {
+      const formdata = {
+        first_name: nameValue,
+        reservation_date: dateInput.value,
+        reservation_slot: reservationSlotSelect.value,
+      };
+
+      fetch("{% url 'bookings' %}", { method: 'post', body: JSON.stringify(formdata) })
+        .then(r => r.text())
+        .then(data => {
+          updateBookingInfo();
+        });
+    } else {
+      alert('Please enter your name before making a reservation.');
+    }
+  });
+
+  // Fetch and update bookings every 10 seconds (adjust as needed)
+  setInterval(updateBookingInfo, 10000);
+
+  // Fetch and update bookings when the page loads
+  window.addEventListener('load', updateBookingInfo);
+
+  // Fetch available slots when date input is clicked
+  dateInput.addEventListener('click', updateBookingInfo);
+
+  // Set the default date to the current date
+  const currentDate = new Date();
+  const currentDateString = currentDate.toISOString().split('T')[0];
+  dateInput.value = currentDateString;
+
+</script>
+{% endblock %}
